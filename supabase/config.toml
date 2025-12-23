@@ -1,0 +1,13 @@
+project_id = "cfhbvjvscnvcenrzngkc"
+
+[functions.admin-auth]
+verify_jwt = false
+
+[functions.admin-projects]
+verify_jwt = false
+
+[functions.admin-requests]
+verify_jwt = false
+
+[functions.submit-request]
+verify_jwt = false
