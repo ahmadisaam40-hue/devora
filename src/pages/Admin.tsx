@@ -1,4 +1,4 @@
-import { useState, useEffect, ChangeEvent } from "react";
+import { useState, useEffect, ChangeEvent, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -69,6 +69,9 @@ const Admin = () => {
   // Upload state for direct CDN (Supabase Storage) uploads
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
+
+  // file input ref so we can trigger click programmatically (more reliable than label-for on some browsers)
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   // Image picker (list existing files from the project-images bucket)
   const [showImagePicker, setShowImagePicker] = useState(false);
@@ -667,18 +670,21 @@ const Admin = () => {
 
                 <div className="mt-2 flex items-center gap-3">
                   <input
+                    ref={fileInputRef}
                     id="file-upload"
                     type="file"
                     accept="image/*"
                     onChange={handleFileChange}
-                    className="hidden"
+                    style={{ display: "none" }}
                   />
 
-                  <label htmlFor="file-upload">
-                    <Button variant="outline" disabled={uploading}>
-                      {uploading ? "Uploading..." : "Upload Image"}
-                    </Button>
-                  </label>
+                  <Button
+                    variant="outline"
+                    disabled={uploading}
+                    onClick={() => fileInputRef.current?.click()}
+                  >
+                    {uploading ? "Uploading..." : "Upload Image"}
+                  </Button>
 
                   <Button
                     variant="ghost"
