@@ -18,6 +18,8 @@ serve(async (req) => {
     );
 
     const { action, project, projectId } = await req.json();
+    // Bucket name for project images (configurable via env)
+    const BUCKET = Deno.env.get('PROJECT_IMAGES_BUCKET') || 'project-images';
     console.log(`Admin projects action: ${action}`);
 
     async function downloadAndUploadImage(url: string) {
@@ -37,9 +39,9 @@ serve(async (req) => {
         }
         if (!ext) ext = 'png';
         const filePath = `projects/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
-        const { error: uploadError } = await supabase.storage.from('project-images').upload(filePath, uint8, { contentType });
+        const { error: uploadError } = await supabase.storage.from(BUCKET).upload(filePath, uint8, { contentType });
         if (uploadError) throw uploadError;
-        const { data: publicData } = supabase.storage.from('project-images').getPublicUrl(filePath);
+        const { data: publicData } = supabase.storage.from(BUCKET).getPublicUrl(filePath);
         return publicData.publicUrl;
       } catch (err) {
         console.error('downloadAndUploadImage error', err);
@@ -49,7 +51,13 @@ serve(async (req) => {
 
     if (action === 'create') {
       // If a remote image URL is supplied, fetch it and upload to storage
-      if (project && project.image_url && project.image_url.startsWith('http')) {
+      // Skip if the URL already points to the configured bucket public path
+      if (
+        project &&
+        project.image_url &&
+        project.image_url.startsWith('http') &&
+        !project.image_url.includes(`/storage/v1/object/public/${BUCKET}/`)
+      ) {
         try {
           project.image_url = await downloadAndUploadImage(project.image_url);
         } catch (err) {
@@ -89,7 +97,13 @@ serve(async (req) => {
 
     if (action === 'update') {
       // If a remote image URL is supplied, fetch it and upload to storage
-      if (project && project.image_url && project.image_url.startsWith('http')) {
+      // Skip if the URL already points to the configured bucket public path
+      if (
+        project &&
+        project.image_url &&
+        project.image_url.startsWith('http') &&
+        !project.image_url.includes(`/storage/v1/object/public/${BUCKET}/`)
+      ) {
         try {
           project.image_url = await downloadAndUploadImage(project.image_url);
         } catch (err) {

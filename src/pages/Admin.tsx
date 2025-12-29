@@ -1,9 +1,10 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, ChangeEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
+import AnimatedCounter from "@/components/AnimatedCounter";
 import {
   Lock,
   Plus,
@@ -52,6 +53,7 @@ const Admin = () => {
   const [activeTab, setActiveTab] = useState<"projects" | "requests">("projects");
   const [projects, setProjects] = useState<Project[]>([]);
   const [requests, setRequests] = useState<ProjectRequest[]>([]);
+  const [pageViewsCount, setPageViewsCount] = useState<number>(0);
   const [showProjectModal, setShowProjectModal] = useState(false);
   const [editingProject, setEditingProject] = useState<Project | null>(null);
   const [projectForm, setProjectForm] = useState({
@@ -63,6 +65,11 @@ const Admin = () => {
     features: "",
     demo_url: "",
   });
+
+  // Upload state for direct CDN (Supabase Storage) uploads
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+
   const { toast } = useToast();
 
   useEffect(() => {
@@ -77,6 +84,7 @@ const Admin = () => {
     if (isAuthenticated) {
       fetchProjects();
       fetchRequests();
+      fetchPageViews();
     }
   }, [isAuthenticated]);
 
@@ -164,6 +172,17 @@ const Admin = () => {
       }
     } catch {
       console.error("Error fetching requests");
+    }
+  };
+
+  const fetchPageViews = async () => {
+    try {
+      // Use head:true + count: 'exact' to get the total rows without fetching them
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { count, error } = await (supabase as any).from("page_views").select("*", { count: "exact", head: true });
+      if (!error) setPageViewsCount(count ?? 0);
+    } catch {
+      console.error("Error fetching page views");
     }
   };
 
@@ -266,6 +285,47 @@ const Admin = () => {
     }
   };
 
+  // Upload a file directly to Supabase Storage and return its public URL
+  const uploadImageFile = async (file: File) => {
+    // Bucket name used by server functions is 'project-images' by default
+    const BUCKET = (import.meta.env.VITE_SUPABASE_PROJECT_IMAGES_BUCKET as string) || "project-images";
+    try {
+      setUploadError(null);
+      setUploading(true);
+      const fileExt = (file.name.split(".").pop() || "png").toLowerCase();
+      const filePath = `projects/${Date.now()}-${Math.random().toString(36).slice(2)}.${fileExt}`;
+
+      const { error: uploadErr } = await supabase.storage.from(BUCKET).upload(filePath, file, {
+        contentType: file.type,
+        upsert: false,
+      });
+
+      if (uploadErr) throw uploadErr;
+
+      const { data: publicData } = supabase.storage.from(BUCKET).getPublicUrl(filePath);
+      return publicData.publicUrl;
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Upload failed";
+      setUploadError(message);
+      toast({ title: message, variant: "destructive" });
+      throw err;
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const handleFileChange = async (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      const publicUrl = await uploadImageFile(file);
+      setProjectForm((prev) => ({ ...prev, image_url: publicUrl }));
+      toast({ title: "Image uploaded and set" });
+    } catch (err) {
+      // error handling is done in uploadImageFile
+    }
+  };
+
   // Setup Screen
   if (isSetup === null) {
     return (
@@ -343,7 +403,13 @@ const Admin = () => {
       {/* Header */}
       <header className="bg-card border-b border-border sticky top-0 z-50">
         <div className="max-w-7xl mx-auto px-4 py-4 flex items-center justify-between">
-          <h1 className="text-xl font-bold text-foreground">Devora Admin</h1>
+          <div className="flex items-center gap-4">
+            <h1 className="text-xl font-bold text-foreground">Devora Admin</h1>
+            <div className="text-sm text-muted-foreground flex items-center gap-2">
+              <span className="text-xs">Site visits</span>
+              <AnimatedCounter end={pageViewsCount} className="font-semibold text-foreground" />
+            </div>
+          </div>
           <Button variant="ghost" size="sm" onClick={handleLogout}>
             <LogOut className="w-4 h-4 mr-2" />
             Logout
@@ -563,12 +629,59 @@ const Admin = () => {
                 </select>
               </div>
               <div>
-                <label className="text-sm font-medium text-foreground mb-1 block">Image URL</label>
+                <label className="text-sm font-medium text-foreground mb-1 block">Image URL or Upload</label>
+
                 <Input
                   placeholder="https://..."
                   value={projectForm.image_url}
                   onChange={(e) => setProjectForm({ ...projectForm, image_url: e.target.value })}
                 />
+
+                <div className="mt-2 flex items-center gap-3">
+                  <input
+                    id="file-upload"
+                    type="file"
+                    accept="image/*"
+                    onChange={handleFileChange}
+                    className="hidden"
+                  />
+                  <label htmlFor="file-upload">
+                    <Button variant="outline" disabled={uploading}>
+                      {uploading ? "Uploading..." : "Upload Image"}
+                    </Button>
+                  </label>
+
+                  {projectForm.image_url && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setProjectForm({ ...projectForm, image_url: "" })}
+                    >
+                      Remove
+                    </Button>
+                  )}
+                </div>
+
+                {/* Preview */}
+                <div className="mt-3">
+                  {projectForm.image_url ? (
+                    <div className="w-48 h-32 bg-secondary rounded-lg overflow-hidden flex items-center justify-center">
+                      <img
+                        src={projectForm.image_url}
+                        alt="Preview"
+                        className="w-full h-full object-cover"
+                        onError={() => setUploadError("Unable to load preview")}
+                        onLoad={() => setUploadError(null)}
+                      />
+                    </div>
+                  ) : (
+                    <div className="text-muted-foreground text-sm">No image selected</div>
+                  )}
+
+                  {uploadError && (
+                    <p className="text-xs text-red-500 mt-1">{uploadError}</p>
+                  )}
+                </div>
               </div>
               <div>
                 <label className="text-sm font-medium text-foreground mb-1 block">

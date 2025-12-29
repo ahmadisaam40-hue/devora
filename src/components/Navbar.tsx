@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Menu, X } from "lucide-react";
 import { useLanguage } from '@/contexts/LanguageContext';
 import { t } from '@/lib/i18n';
+import { supabase } from "@/integrations/supabase/client";
 
 const Navbar = () => {
   const [isScrolled, setIsScrolled] = useState(false);
@@ -17,6 +18,25 @@ const Navbar = () => {
     window.addEventListener("scroll", handleScroll);
     return () => window.removeEventListener("scroll", handleScroll);
   }, []);
+
+  // Record a visit when the route changes (with simple localStorage rate-limiting)
+  useEffect(() => {
+    const recordVisit = async () => {
+      try {
+        const key = `pv_${location.pathname}`;
+        const last = localStorage.getItem(key);
+        const now = Date.now();
+        const DAY = 24 * 60 * 60 * 1000; // 1 day
+        if (last && now - Number(last) < DAY) return;
+        await (supabase as any).from("page_views").insert([{ path: location.pathname }]);
+        localStorage.setItem(key, String(now));
+      } catch (err) {
+        console.error("Error recording visit", err);
+      }
+    };
+    // record on mount / route change
+    recordVisit();
+  }, [location.pathname]);
 
   const { lang, setLang } = useLanguage();
 
