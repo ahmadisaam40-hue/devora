@@ -70,6 +70,12 @@ const Admin = () => {
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
 
+  // Image picker (list existing files from the project-images bucket)
+  const [showImagePicker, setShowImagePicker] = useState(false);
+  const [storageImages, setStorageImages] = useState<Array<{ name: string; publicUrl: string }>>([]);
+  const [loadingImages, setLoadingImages] = useState(false);
+  const [imagePickerError, setImagePickerError] = useState<string | null>(null);
+
   const { toast } = useToast();
 
   useEffect(() => {
@@ -323,6 +329,28 @@ const Admin = () => {
       toast({ title: "Image uploaded and set" });
     } catch (err) {
       // error handling is done in uploadImageFile
+    }
+  };
+
+  // List files from the storage bucket (projects folder)
+  const fetchStorageImages = async () => {
+    const BUCKET = (import.meta.env.VITE_SUPABASE_PROJECT_IMAGES_BUCKET as string) || "project-images";
+    try {
+      setImagePickerError(null);
+      setLoadingImages(true);
+      const { data, error } = await supabase.storage.from(BUCKET).list("projects", { limit: 200, offset: 0, sortBy: { column: "name", order: "asc" } });
+      if (error) throw error;
+
+      const images = (data || []).map((file) => {
+        const { data: publicData } = supabase.storage.from(BUCKET).getPublicUrl(file.name);
+        return { name: file.name, publicUrl: publicData.publicUrl };
+      });
+
+      setStorageImages(images);
+    } catch (err: unknown) {
+      setImagePickerError(err instanceof Error ? err.message : "Failed to load images");
+    } finally {
+      setLoadingImages(false);
     }
   };
 
@@ -645,11 +673,28 @@ const Admin = () => {
                     onChange={handleFileChange}
                     className="hidden"
                   />
+
                   <label htmlFor="file-upload">
                     <Button variant="outline" disabled={uploading}>
                       {uploading ? "Uploading..." : "Upload Image"}
                     </Button>
                   </label>
+
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={async () => {
+                      try {
+                        // Open picker and lazy-load images
+                        setShowImagePicker(true);
+                        if (storageImages.length === 0) await fetchStorageImages();
+                      } catch (e) {
+                        // errors handled in fetchStorageImages
+                      }
+                    }}
+                  >
+                    Choose Existing
+                  </Button>
 
                   {projectForm.image_url && (
                     <Button
@@ -682,6 +727,44 @@ const Admin = () => {
                     <p className="text-xs text-red-500 mt-1">{uploadError}</p>
                   )}
                 </div>
+
+                {/* Image Picker Modal */}
+                {showImagePicker && (
+                  <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+                    <div className="bg-card border border-border rounded-2xl w-full max-w-3xl max-h-[80vh] overflow-y-auto p-4">
+                      <div className="flex justify-between items-center mb-4">
+                        <h3 className="text-lg font-bold">Choose Existing Image</h3>
+                        <button onClick={() => setShowImagePicker(false)}>
+                          <X className="w-5 h-5 text-muted-foreground" />
+                        </button>
+                      </div>
+
+                      {loadingImages ? (
+                        <div className="text-center py-8">Loading images...</div>
+                      ) : imagePickerError ? (
+                        <p className="text-red-500">{imagePickerError}</p>
+                      ) : storageImages.length === 0 ? (
+                        <p className="text-muted-foreground">No images found in bucket</p>
+                      ) : (
+                        <div className="grid grid-cols-3 gap-3">
+                          {storageImages.map((img) => (
+                            <div
+                              key={img.name}
+                              className="cursor-pointer border rounded overflow-hidden"
+                              onClick={() => {
+                                setProjectForm((prev) => ({ ...prev, image_url: img.publicUrl }));
+                                setShowImagePicker(false);
+                                toast({ title: "Image selected" });
+                              }}
+                            >
+                              <img src={img.publicUrl} alt={img.name} className="w-full h-32 object-cover" />
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
               <div>
                 <label className="text-sm font-medium text-foreground mb-1 block">
